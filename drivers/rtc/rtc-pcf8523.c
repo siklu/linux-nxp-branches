@@ -342,6 +342,8 @@ static int pcf8523_probe(struct i2c_client *client,
 			 const struct i2c_device_id *id)
 {
 	struct rtc_device *rtc;
+	u8 pm = 0;
+	int low;
 	int err;
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C))
@@ -352,7 +354,24 @@ static int pcf8523_probe(struct i2c_client *client,
 		dev_warn(&client->dev, "failed to set xtal load capacitance: %d",
 			 err);
 
-	err = pcf8523_set_pm(client, 0);
+	/*
+	 * A depleted backup cell is nothing to switch over to, and arming the
+	 * switch-over into one costs the whole device rather than only the
+	 * time: the part stops acknowledging its address altogether, and on
+	 * this board that takes the RTC off a bus it shares with the PLL, the
+	 * temperature sensor and an SFP cage until the next boot. Disable the
+	 * switch-over when the cell reads low, and leave battery-low detection
+	 * on, so the flag keeps reporting and this decision is made the same
+	 * way on every probe.
+	 */
+	low = pcf8523_voltage_low(client);
+	if (low > 0) {
+		pm = REG_CONTROL3_PM_VDD;
+		dev_warn(&client->dev,
+			 "backup cell is low, disabling battery switch-over\n");
+	}
+
+	err = pcf8523_set_pm(client, pm);
 	if (err < 0)
 		return err;
 
