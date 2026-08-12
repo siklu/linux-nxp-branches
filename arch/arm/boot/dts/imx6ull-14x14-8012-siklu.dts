@@ -225,10 +225,16 @@
 			#address-cells = <1>;
 			#size-cells = <1>;
 
+			/*
+			 * Writable, so that U-Boot can be replaced from Linux with
+			 * flashcp. It ends at 0x1F0000, which leaves the system EEPROM
+			 * held by the seeprom partition below outside this partition, so
+			 * a write here stays clear of it. 0x1F0000 is 31 whole 64 KiB
+			 * erase sectors. U-Boot's own bubt command erases the same range.
+			 */
 			partition@0 {
-				reg = <0x0 0x200000>;
+				reg = <0x0 0x1F0000>;
 				label = "u-boot";
-				read-only;
 			};
 			partition@1F0000 {
 				reg = <0x1F0000 0x10000>;
@@ -240,8 +246,14 @@
 
 &i2c1 {
 	clock-frequency = <100000>;
-	pinctrl-names = "default";
+	/* i2c-imx arms i2c_recover_bus() only when a "gpio" pinctrl state plus
+	 * scl-gpios/sda-gpios are present; without them a slave left holding SDA
+	 * keeps the bus down until the board is reset. */
+	pinctrl-names = "default", "gpio";
 	pinctrl-0 = <&pinctrl_i2c1>;
+	pinctrl-1 = <&pinctrl_i2c1_gpio>;
+	scl-gpios = <&gpio4 18 GPIO_ACTIVE_HIGH>;
+	sda-gpios = <&gpio4 17 GPIO_ACTIVE_HIGH>;
 	status = "okay";
 
 	rtc: pcf8523@68 {
@@ -292,6 +304,13 @@
 		fsl,pins = <
 			MX6UL_PAD_CSI_PIXCLK__I2C1_SCL  0x4001b8b0
 			MX6UL_PAD_CSI_MCLK__I2C1_SDA  0x4001b8b0
+		>;
+	};
+
+	pinctrl_i2c1_gpio: i2c1gpiogrp {
+		fsl,pins = <
+			MX6UL_PAD_CSI_PIXCLK__GPIO4_IO18  0x4001b8b0
+			MX6UL_PAD_CSI_MCLK__GPIO4_IO17  0x4001b8b0
 		>;
 	};
 
