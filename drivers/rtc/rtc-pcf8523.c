@@ -140,35 +140,6 @@ static int pcf8523_set_pm(struct i2c_client *client, u8 pm)
 	return 0;
 }
 
-/*
- * A depleted backup cell is nothing to switch over to, and arming the
- * switch-over into one costs the whole device rather than only the time: the
- * part stops acknowledging its address altogether after a board reset, and on
- * this board that takes the RTC off a bus it shares with the PLL, the
- * temperature sensor and an SFP cage until the next boot.
- *
- * Battery-low detection is left enabled, so the flag keeps reporting and the
- * same decision is reached again on the next boot. The write is skipped when
- * the field already holds the value, which is what makes this callable from
- * the read path without writing on every failed read.
- */
-static void pcf8523_disable_battery_switchover(struct i2c_client *client)
-{
-	u8 value;
-
-	if (pcf8523_read(client, REG_CONTROL3, &value) < 0)
-		return;
-
-	if ((value & REG_CONTROL3_PM_MASK) == REG_CONTROL3_PM_VDD)
-		return;
-
-	if (pcf8523_set_pm(client, REG_CONTROL3_PM_VDD) < 0)
-		return;
-
-	dev_warn(&client->dev,
-		 "backup cell is low, disabling battery switch-over\n");
-}
-
 static int pcf8523_stop_rtc(struct i2c_client *client)
 {
 	u8 value;
@@ -216,15 +187,6 @@ static int pcf8523_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	if (err < 0) {
 		return err;
 	} else if (err > 0) {
-		/*
-		 * The flag is not raised yet when the driver probes, measured
-		 * on an EH8020FX: probe reads it clear and it is set by the
-		 * time hctosys reaches this read, milliseconds after
-		 * registration. So this is the first place a depleted cell is
-		 * visible, and the decision belongs here rather than only in
-		 * probe().
-		 */
-		pcf8523_disable_battery_switchover(client);
 		dev_err(dev, "low voltage detected, time is unreliable\n");
 		return -EINVAL;
 	}
@@ -393,14 +355,6 @@ static int pcf8523_probe(struct i2c_client *client,
 	err = pcf8523_set_pm(client, 0);
 	if (err < 0)
 		return err;
-
-	/*
-	 * Covers the case where the flag is already raised at probe time, for
-	 * instance across a warm reboot that left the part powered. When it is
-	 * not, the read path picks the same decision up as soon as the flag
-	 * appears.
-	 */
-	pcf8523_disable_battery_switchover(client);
 
 	rtc = devm_rtc_device_register(&client->dev, DRIVER_NAME,
 				       &pcf8523_rtc_ops, THIS_MODULE);
