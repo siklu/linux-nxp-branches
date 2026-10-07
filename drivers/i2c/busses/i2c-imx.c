@@ -1098,6 +1098,18 @@ static int i2c_imx_xfer_common(struct i2c_adapter *adapter,
 
 	dev_dbg(&i2c_imx->adapter.dev, "<%s>\n", __func__);
 
+	/*
+	 * A master transfer on an adapter that runs a slave stops the slave's
+	 * event stream until the next reboot. The i2c core serializes this
+	 * check with imx_reg_slave()/imx_unreg_slave() through the bus lock.
+	 */
+	if (i2c_imx->slave) {
+		dev_warn_ratelimited(&i2c_imx->adapter.dev,
+				     "master transfer to 0x%02x refused: the adapter runs as a slave\n",
+				     msgs[0].addr);
+		return -EBUSY;
+	}
+
 	/* Start I2C transfer */
 	result = i2c_imx_start(i2c_imx, atomic);
 	if (result) {
